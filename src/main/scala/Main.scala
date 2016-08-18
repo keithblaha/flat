@@ -1,13 +1,13 @@
+// Copyright 2016 flat authors
+
 package flat
 
 import java.net.{ServerSocket, Socket, SocketException}
 import monix.execution.Scheduler.Implicits.global
 import monix.reactive.{Consumer, Observable}
 import org.apache.http.impl.io.{DefaultHttpRequestParser, HttpTransportMetricsImpl, SessionInputBufferImpl}
-import org.apache.http.util.CharArrayBuffer
 import org.slf4j.LoggerFactory
-import scala.concurrent.duration._
-import scala.io.{BufferedSource, Source, StdIn}
+import scala.io.StdIn
 
 object Main extends App {
   val logger = LoggerFactory.getLogger("flat")
@@ -17,16 +17,14 @@ object Main extends App {
 
   val server = new ServerSocket(port)
 
-  val socketClosedMessages = Set("Socket is closed", "Socket closed")
-
   val cancelable = Observable
     .repeatEval {
       try Some(server.accept)
       catch {
-        case se: SocketException if socketClosedMessages.contains(se.getMessage) =>
+        case se: SocketException if Set("Socket is closed", "Socket closed").contains(se.getMessage) =>
           None
         case t: Throwable =>
-          logger.error("Uncaught error in server socket source", t)
+          logger.error("Uncaught error in socket source", t)
           None
       }
     }
@@ -34,8 +32,7 @@ object Main extends App {
     .map(_.get)
     .runWith(Consumer.loadBalance(consumerParallelism, Consumer.foreach[Socket] { socket =>
       try {
-        // TODO - define consumers so parsers are reused between requests
-        val buffer = new SessionInputBufferImpl(new HttpTransportMetricsImpl(), 1024) 
+        val buffer = new SessionInputBufferImpl(new HttpTransportMetricsImpl(), 1024)
         buffer.bind(socket.getInputStream)
         val parser = new DefaultHttpRequestParser(buffer)
         val request = parser.parse
@@ -45,12 +42,12 @@ object Main extends App {
         socket.shutdownOutput
       }
       catch { case t: Throwable =>
-        logger.error("Uncaught error in socket handler", t)
+        logger.error("Uncaught error in socket consumer", t)
       }
       finally socket.close
     }))
     .onErrorRestartIf { t =>
-      logger.error("Uncaught error in server socket consumer, terminating", t)
+      logger.error("Uncaught error in socket task", t)
       false
     }
     .runAsync

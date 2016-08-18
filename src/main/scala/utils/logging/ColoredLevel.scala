@@ -1,3 +1,8 @@
+/*
+ * Derived from the work of Lightbend, Inc.
+ * Source: https://github.com/playframework/playframework/blob/2.5.4/framework/src/play-logback/src/main/scala/play.api.libs.logback/ColoredLevel.scala
+ */
+
 package flat.utils.logging
 
 import ch.qos.logback.classic.Level
