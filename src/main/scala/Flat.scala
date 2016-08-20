@@ -7,25 +7,25 @@ import java.net.{ServerSocket, Socket, SocketException}
 import monix.eval.Task
 import monix.execution.Scheduler.Implicits.global
 import monix.reactive.{Consumer, Observable}
-import org.apache.http.HttpRequest
+import org.apache.http.{HttpRequest => ApacheHttpRequest, HttpVersion}
 import org.apache.http.impl.io.{
   DefaultHttpRequestParser, HttpTransportMetricsImpl,
   SessionInputBufferImpl, SessionOutputBufferImpl
 }
-import org.slf4j.LoggerFactory
+import scala.collection.mutable.HashMap
 import scala.io.StdIn
 
-object Server {
-  val port = 9000
+object app {
   val parallelism = Math.ceil(Runtime.getRuntime.availableProcessors / 2.0).toInt
 
-  val serverSocket = new ServerSocket(port)
-
-  val okResponder = (httpRequest: HttpRequest) => {
-    HttpResponse(HttpStatus.OK, "<html><body><h1>hi</h1></body></html>")
+  val routes = HashMap.empty[(String,HttpMethod),(HttpRequest) => Task[HttpResponse]]
+  def route(uri: String, method: HttpMethod, handler: (HttpRequest) => Task[HttpResponse]): Unit = {
+    routes += (uri, method) -> handler
   }
 
-  def start = {
+  def start: Unit = start(9000)
+  def start(port: Int): Unit = {
+    val serverSocket = new ServerSocket(port)
     val serverCancelable = Observable
       .repeatEval {
         try Some(serverSocket.accept)
@@ -47,13 +47,30 @@ object Server {
           val requestParser = new DefaultHttpRequestParser(inputBuffer)
           val request = requestParser.parse
           Logger.debug(s"Received request:\n$request")
-          request
+          if (request.getRequestLine.getProtocolVersion != HttpVersion.HTTP_1_1)
+            throw new RuntimeException("Encountered unhandled http version")
+          val method = request.getRequestLine.getMethod match {
+            case "GET" => GET
+            case "POST" => POST
+            case _ => throw new RuntimeException("Encountered unhandled http method")
+          }
+          HttpRequest(
+            method,
+            request.getRequestLine.getUri,
+            request.getAllHeaders.toList.map(h => (h.getName, h.getValue))
+          )
         }
-        .map { request =>
-          okResponder(request)
+        .flatMap { request =>
+          routes.get((request.uri, request.method)) match {
+            case Some(handler) =>
+              handler(request)
+            case _ =>
+              Task.now(NotFound(""))
+          }
         }
-        .onErrorHandleWith { error =>
-          Task.now(HttpResponse(HttpStatus.InternalServerError, "<html><body><h1>error!</h1></body></html>"))
+        .onErrorHandleWith { t =>
+          Logger.error("Uncaught error from handler", t)
+          Task.now(InternalServerError("<html><body><h1>error!</h1></body></html>"))
         }
         .map { response =>
           val outputBuffer = new SessionOutputBufferImpl(new HttpTransportMetricsImpl, 1024)
@@ -61,9 +78,7 @@ object Server {
           outputBuffer.write(response.getBytes)
           outputBuffer.flush
           socket.shutdownOutput
-        }
-        .doOnFinish { _ =>
-          Task.now(socket.close)
+          socket.close
         }
       })
       .onErrorRestartIf { t =>
