@@ -4,16 +4,17 @@ package flat
 
 import flat.logging.Logger
 import java.net.{ServerSocket, Socket, SocketException}
+import java.util.concurrent.Executors
 import monix.eval.Task
-import monix.execution.Scheduler.Implicits.global
+import monix.execution.{CancelableFuture, Scheduler}
 import monix.reactive.{Consumer, Observable}
+import monix.execution.schedulers.ExecutionModel.AlwaysAsyncExecution
 import org.apache.http.{HttpRequest => ApacheHttpRequest, HttpVersion}
 import org.apache.http.impl.io.{
   DefaultHttpRequestParser, HttpTransportMetricsImpl,
   SessionInputBufferImpl, SessionOutputBufferImpl
 }
 import scala.collection.mutable.HashMap
-import scala.io.StdIn
 
 object app {
   val parallelism = Math.ceil(Runtime.getRuntime.availableProcessors / 2.0).toInt
@@ -23,6 +24,10 @@ object app {
     routes += (uri, method) -> handler
   }
 
+  val executor = Executors.newScheduledThreadPool(parallelism * 2)
+  implicit val scheduler = Scheduler(executor, AlwaysAsyncExecution)
+
+  var serverCancelableOpt = Option.empty[CancelableFuture[Unit]]
   def start: Unit = start(9000)
   def start(port: Int): Unit = {
     val serverSocket = new ServerSocket(port)
@@ -86,14 +91,26 @@ object app {
         false
       }
       .delayExecutionWith(Task.now {
-        Logger.info(s"Running on port ${Console.CYAN}$port${Console.RESET}, press ${Console.YELLOW}enter${Console.RESET} to stop")
+        Logger.info(s"Running on port ${Console.CYAN}$port${Console.RESET}")
       })
+      .doOnFinish { _ =>
+        Task.now(serverSocket.close)
+      }
       .runAsync
 
-    StdIn.readLine
-    serverCancelable.cancel
-    serverSocket.close
-    Logger.info(s"Stopped running")
+    serverCancelableOpt = Some(serverCancelable)
+    sys.addShutdownHook(stop)
+  }
+
+  def stop: Unit = {
+    serverCancelableOpt match {
+      case Some(serverCancelable) =>
+        serverCancelable.cancel
+        executor.shutdownNow
+        Logger.info(s"Stopped running app")
+      case _ =>
+        Logger.warn(s"Attempted to stop non-running app")
+    }
   }
 }
 
