@@ -3,7 +3,7 @@
  * Source: https://github.com/playframework/playframework/blob/2.5.4/framework/src/play-logback/src/main/scala/play.api.libs.logback/ColoredLevel.scala
  */
 
-package flat.utils.logging
+package flat.logging
 
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.pattern.ClassicConverter

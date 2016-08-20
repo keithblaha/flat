@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
-  <conversionRule conversionWord="coloredLevel" converterClass="flat.utils.logging.ColoredLevel" />
+  <conversionRule conversionWord="coloredLevel" converterClass="flat.logging.ColoredLevel" />
 
 	<appender name="STD_OUT" class="ch.qos.logback.core.ConsoleAppender">
 		<encoder>
