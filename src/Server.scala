@@ -10,7 +10,7 @@ import monix.eval.Task
 import monix.execution.{CancelableFuture, Scheduler}
 import monix.reactive.{Consumer, Observable}
 import monix.execution.schedulers.ExecutionModel
-import org.apache.http.{HttpRequest => ApacheHttpRequest, HttpVersion}
+import org.apache.http.{ConnectionClosedException, HttpRequest => ApacheHttpRequest, HttpVersion}
 import org.apache.http.impl.io.{
   DefaultHttpRequestParser, HttpTransportMetricsImpl,
   SessionInputBufferImpl, SessionOutputBufferImpl
@@ -21,8 +21,17 @@ object app {
   val parallelism = Math.ceil(Runtime.getRuntime.availableProcessors / 2.0).toInt
 
   val routes = HashMap.empty[(String,HttpMethod),(HttpRequest) => Task[HttpResponse]]
-  def route(uri: String, method: HttpMethod, handler: (HttpRequest) => Task[HttpResponse]): Unit = {
-    routes += (uri, method) -> handler
+
+  def route(uri: String, methods: List[HttpMethod], handler: (HttpRequest) => Task[HttpResponse]): Unit = {
+    methods.foreach(method => routes += (uri, method) -> handler)
+  }
+
+  def route(uri: String, handler: (HttpRequest) => Task[HttpResponse]): Unit = {
+    route(uri, List(GET, POST, PUT, HEAD, DELETE, TRACE, OPTIONS, PATCH, CONNECT), handler)
+  }
+
+  def get(uri: String, handler: (HttpRequest) => Task[HttpResponse]): Unit = {
+    route(uri, List(GET), handler)
   }
 
   val executor = Executors.newScheduledThreadPool(parallelism * 2)
@@ -43,6 +52,9 @@ object app {
         .onErrorRestartIf {
           case ioe: IOException if ioe.getMessage == "Stream closed" =>
             Logger.debug("Caught stream closed exception")
+            true
+          case cce: ConnectionClosedException if cce.getMessage == "Client closed connection" =>
+            Logger.debug("Caught client closed exception")
             true
           case t: Throwable =>
             Logger.error(s"Unknown error parsing request", t)

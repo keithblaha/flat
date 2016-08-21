@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+  <conversionRule conversionWord="coloredLevel" converterClass="flat.logging.ColoredLevel" />
+
+  <appender name="STD_OUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%coloredLevel [%date] %logger - %message%n%xException</pattern>
+    </encoder>
+  </appender>
+  <appender name="ASYNC_STD_OUT" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="STD_OUT" />
+  </appender>
+
+  <logger name="flat" level="DEBUG" />
+
+  <root level="DEBUG">
+    <appender-ref ref="ASYNC_STD_OUT" />
+  </root>
+</configuration>
+
