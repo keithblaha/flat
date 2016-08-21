@@ -1,2 +1,10 @@
 # flat
-an observer pattern based Scala microframework inspired by Flask
+```
+import flat._
+
+object Hello extends App with FlatApp {
+  app.get("/") { request =>
+    OK("hello!")
+  }
+}
+```
