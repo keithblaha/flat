@@ -6,5 +6,7 @@ object Hello extends App with FlatApp {
   app.get("/") { request =>
     OK("hello!")
   }
+
+  app.start(9000)
 }
 ```
