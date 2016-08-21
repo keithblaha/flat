@@ -3,20 +3,23 @@
 package flat.examples.hello
 
 import flat._
-import monix.eval.Task
 
-object Hello extends App {
-  app.get("/", request => Task.now {
+object Hello extends App with FlatApp {
+  app.get("/") { request =>
     OK("hello!")
-  })
+  }
 
-  app.route("/can-you-handle-anything", request => Task.now {
+  app.route("/can-you-handle-anything") { request =>
     OK("you bet")
-  })
+  }
 
-  app.route("/flat-is-neat", List(GET, POST), request => Task.now {
+  app.route("/flat-is-neat", List(GET, POST)) { request =>
     OK("i know ;)")
-  })
+  }
+
+  app.route("/flat-is-lame", List(GET, POST)) { request =>
+    BadRequest("""¯\_(ツ)_/¯""")
+  }
 
   app.start
 }

@@ -17,30 +17,39 @@ import org.apache.http.impl.io.{
 }
 import scala.collection.mutable.HashMap
 
+trait FlatApp {
+  implicit def sync2Async(response: HttpResponse): Task[HttpResponse] = Task.now(response)
+}
+
 object app {
   val parallelism = Math.ceil(Runtime.getRuntime.availableProcessors / 2.0).toInt
 
-  val routes = HashMap.empty[(String,HttpMethod),(HttpRequest) => Task[HttpResponse]]
+  private type Handler = (HttpRequest) => Task[HttpResponse]
 
-  def route(uri: String, methods: List[HttpMethod], handler: (HttpRequest) => Task[HttpResponse]): Unit = {
+  private val routes = HashMap.empty[(String,HttpMethod),Handler]
+  private def addRoute(uri: String, methods: List[HttpMethod], handler: Handler) = {
     methods.foreach(method => routes += (uri, method) -> handler)
   }
 
-  def route(uri: String, handler: (HttpRequest) => Task[HttpResponse]): Unit = {
-    route(uri, List(GET, POST, PUT, HEAD, DELETE, TRACE, OPTIONS, PATCH, CONNECT), handler)
+  def route(uri: String, methods: List[HttpMethod])(handler: Handler): Unit = {
+    addRoute(uri, methods, handler)
   }
 
-  def get(uri: String, handler: (HttpRequest) => Task[HttpResponse]): Unit = {
-    route(uri, List(GET), handler)
+  def route(uri: String)(handler: Handler): Unit = {
+    addRoute(uri, List(GET, POST, PUT, HEAD, DELETE, TRACE, OPTIONS, PATCH, CONNECT), handler)
   }
 
-  val executor = Executors.newScheduledThreadPool(parallelism * 2)
+  def get(uri: String)(handler: Handler): Unit = {
+    addRoute(uri, List(GET), handler)
+  }
+
+  private val executor = Executors.newScheduledThreadPool(parallelism * 2)
   implicit val scheduler = Scheduler(executor, ExecutionModel.Default)
 
   def start: Unit = start(9000)
   def start(port: Int): Unit = {
     val serverSocket = new ServerSocket(port)
-    val serverCancelable = Observable
+    Observable
       .repeatEval(serverSocket.accept)
       .runWith(Consumer.foreachParallelAsync[Socket](parallelism) { socket =>
         Task {
@@ -55,7 +64,7 @@ object app {
             true
           case cce: ConnectionClosedException if cce.getMessage == "Client closed connection" =>
             Logger.debug("Caught client closed exception")
-            true
+            false
           case t: Throwable =>
             Logger.error(s"Unknown error parsing request", t)
             true
@@ -65,8 +74,15 @@ object app {
           if (request.getRequestLine.getProtocolVersion != HttpVersion.HTTP_1_1)
             throw new RuntimeException("Encountered unhandled http version")
           val method = request.getRequestLine.getMethod match {
-            case "GET" => GET
-            case "POST" => POST
+            case "GET"     => GET
+            case "POST"    => POST
+            case "PUT"     => PUT
+            case "HEAD"    => HEAD
+            case "DELETE"  => DELETE
+            case "TRACE"   => TRACE
+            case "OPTIONS" => OPTIONS
+            case "PATCH"   => PATCH
+            case "CONNECT" => CONNECT
             case _ => throw new RuntimeException("Encountered unhandled http method")
           }
           HttpRequest(
