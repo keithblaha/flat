@@ -3,12 +3,13 @@
 package flat
 
 import flat.logging.Logger
-import java.net.{ServerSocket, Socket, SocketException}
+import java.io.IOException
+import java.net.{ServerSocket, Socket}
 import java.util.concurrent.Executors
 import monix.eval.Task
 import monix.execution.{CancelableFuture, Scheduler}
 import monix.reactive.{Consumer, Observable}
-import monix.execution.schedulers.ExecutionModel.AlwaysAsyncExecution
+import monix.execution.schedulers.ExecutionModel
 import org.apache.http.{HttpRequest => ApacheHttpRequest, HttpVersion}
 import org.apache.http.impl.io.{
   DefaultHttpRequestParser, HttpTransportMetricsImpl,
@@ -25,32 +26,29 @@ object app {
   }
 
   val executor = Executors.newScheduledThreadPool(parallelism * 2)
-  implicit val scheduler = Scheduler(executor, AlwaysAsyncExecution)
+  implicit val scheduler = Scheduler(executor, ExecutionModel.Default)
 
-  var serverCancelableOpt = Option.empty[CancelableFuture[Unit]]
   def start: Unit = start(9000)
   def start(port: Int): Unit = {
     val serverSocket = new ServerSocket(port)
     val serverCancelable = Observable
-      .repeatEval {
-        try Some(serverSocket.accept)
-        catch {
-          case se: SocketException if Set("Socket is closed", "Socket closed").contains(se.getMessage) =>
-            None
-          case t: Throwable =>
-            Logger.error("Uncaught error in socket source", t)
-            None
-        }
-      }
-      .collect {
-        case Some(s) => s
-      }
+      .repeatEval(serverSocket.accept)
       .runWith(Consumer.foreachParallelAsync[Socket](parallelism) { socket =>
         Task {
           val inputBuffer = new SessionInputBufferImpl(new HttpTransportMetricsImpl, 1024)
           inputBuffer.bind(socket.getInputStream)
           val requestParser = new DefaultHttpRequestParser(inputBuffer)
-          val request = requestParser.parse
+          requestParser.parse
+        }
+        .onErrorRestartIf {
+          case ioe: IOException if ioe.getMessage == "Stream closed" =>
+            Logger.debug("Caught stream closed exception")
+            true
+          case t: Throwable =>
+            Logger.error(s"Unknown error parsing request", t)
+            true
+        }
+        .map { request =>
           Logger.debug(s"Received request:\n$request")
           if (request.getRequestLine.getProtocolVersion != HttpVersion.HTTP_1_1)
             throw new RuntimeException("Encountered unhandled http version")
@@ -97,20 +95,6 @@ object app {
         Task.now(serverSocket.close)
       }
       .runAsync
-
-    serverCancelableOpt = Some(serverCancelable)
-    sys.addShutdownHook(stop)
-  }
-
-  def stop: Unit = {
-    serverCancelableOpt match {
-      case Some(serverCancelable) =>
-        serverCancelable.cancel
-        executor.shutdownNow
-        Logger.info(s"Stopped running app")
-      case _ =>
-        Logger.warn(s"Attempted to stop non-running app")
-    }
   }
 }
 

@@ -1,7 +1,8 @@
 // Copyright 2016 flat authors
 
-package flat
+package flat.examples.hello
 
+import flat._
 import monix.eval.Task
 
 object Main extends App {
