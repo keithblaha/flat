@@ -2,8 +2,6 @@
 
 package flat
 
-import java.nio.charset.StandardCharsets
-
 sealed trait HttpMethod
 final case object GET extends HttpMethod
 final case object POST extends HttpMethod
@@ -15,20 +13,12 @@ final case object OPTIONS extends HttpMethod
 final case object PATCH extends HttpMethod
 final case object CONNECT extends HttpMethod
 
-case class HttpRequest(method: HttpMethod, uri: String, headers: List[(String,String)], body: Option[String] = None) {
-}
+case class HttpRequest(method: HttpMethod, uri: String, headers: List[(String,String)], body: Option[String] = None)
 
-// TODO - headers
-abstract class HttpResponse(
-  code: Int,
-  reason: String,
-  bodyOpt: Option[Any]
-) {
-  def getBytes: Array[Byte] = s"HTTP/1.1 $code $reason\r\n\r\n${bodyOpt.map(_.toString).getOrElse("")}".getBytes(StandardCharsets.UTF_8)
-}
+abstract class HttpResponse(val code: Int, val reason: String, val finalHeaders: List[(String,String)], val bodyOpt: Option[String] = None)
 
-final case class OK(body: Any) extends HttpResponse(200, "OK", Some(body))
-final case class BadRequest(body: Any) extends HttpResponse(400, "Bad Request", Some(body))
-final case class NotFound(body: Any) extends HttpResponse(404, "Not Found", Some(body))
-final case class InternalServerError(body: Any) extends HttpResponse(500, "Internal Service Error", Some(body))
+final case class OK(body: String, headers: List[(String,String)] = List()) extends HttpResponse(200, "OK", headers, Some(body))
+final case class BadRequest(body: String, headers: List[(String,String)] = List()) extends HttpResponse(400, "Bad Request", headers, Some(body))
+final case class NotFound(body: String, headers: List[(String,String)] = List()) extends HttpResponse(404, "Not Found", headers, Some(body))
+final case class InternalServerError(body: String, headers: List[(String,String)] = List()) extends HttpResponse(500, "Internal Service Error", headers, Some(body))
 

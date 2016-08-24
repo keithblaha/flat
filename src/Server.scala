@@ -3,7 +3,7 @@
 package flat
 
 import flat.logging.Logger
-import java.io.IOException
+import java.io.{ByteArrayInputStream, IOException}
 import java.net.{ServerSocket, Socket}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
@@ -15,11 +15,11 @@ import org.apache.http.{ConnectionClosedException, HttpRequest => ApacheHttpRequ
 import org.apache.http.entity.{BasicHttpEntity, ContentLengthStrategy}
 import org.apache.http.impl.entity.StrictContentLengthStrategy
 import org.apache.http.impl.io.{
-  ChunkedInputStream,  ContentLengthInputStream, DefaultHttpRequestParser,
-  HttpTransportMetricsImpl, IdentityInputStream, SessionInputBufferImpl,
-  SessionOutputBufferImpl
+  ChunkedInputStream, ChunkedOutputStream, ContentLengthInputStream, ContentLengthOutputStream,
+  DefaultHttpResponseWriter, DefaultHttpRequestParser, HttpTransportMetricsImpl, IdentityInputStream,
+  IdentityOutputStream, SessionInputBufferImpl, SessionOutputBufferImpl
 }
-import org.apache.http.message.BasicHttpEntityEnclosingRequest
+import org.apache.http.message.{BasicHeader, BasicHttpEntityEnclosingRequest, BasicHttpResponse}
 import org.apache.http.util.EntityUtils
 import scala.collection.mutable.HashMap
 
@@ -123,20 +123,51 @@ object app {
             case Some(handler) =>
               handler(request)
             case _ =>
-              Task.now(NotFound(""))
+              Task.now(NotFound("not found"))
           }
         }
         .onErrorHandleWith { t =>
           Logger.error("Uncaught error from handler", t)
-          Task.now(InternalServerError("<html><body><h1>error!</h1></body></html>"))
+          Task.now(InternalServerError("error"))
         }
-        .map { response =>
+        .map { flatResponse =>
           val outputBuffer = new SessionOutputBufferImpl(new HttpTransportMetricsImpl, 1024)
           outputBuffer.bind(socket.getOutputStream)
-          outputBuffer.write(response.getBytes)
+          val responseWriter = new DefaultHttpResponseWriter(outputBuffer)
+          val response = new BasicHttpResponse(
+            HttpVersion.HTTP_1_1,
+            flatResponse.code,
+            flatResponse.reason
+          )
+
+          response.setHeaders(flatResponse.finalHeaders.map { case (n,v) =>
+            new BasicHeader(n, v)
+          }.toArray)
+
+          responseWriter.write(response)
+
+          flatResponse.bodyOpt.map { body =>
+            val entity = new BasicHttpEntity
+            entity.setContent(new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)))
+            response.setEntity(entity)
+            val contentLength = StrictContentLengthStrategy.INSTANCE.determineLength(response)
+            val contentStream = contentLength match {
+              case ContentLengthStrategy.CHUNKED =>
+                new ChunkedOutputStream(2048, outputBuffer)
+              case ContentLengthStrategy.IDENTITY =>
+                new IdentityOutputStream(outputBuffer)
+              case _ =>
+                new ContentLengthOutputStream(outputBuffer, contentLength)
+            }
+
+            entity.writeTo(contentStream)
+            contentStream.close
+          }
+
           outputBuffer.flush
           socket.shutdownOutput
           socket.close
+          Logger.debug(s"Sent response:\n$flatResponse")
         }
       })
       .onErrorRestartIf { t =>
