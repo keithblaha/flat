@@ -5,16 +5,22 @@ package flat
 import flat.logging.Logger
 import java.io.IOException
 import java.net.{ServerSocket, Socket}
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 import monix.eval.Task
 import monix.execution.{CancelableFuture, Scheduler}
 import monix.reactive.{Consumer, Observable}
 import monix.execution.schedulers.ExecutionModel
 import org.apache.http.{ConnectionClosedException, HttpRequest => ApacheHttpRequest, HttpVersion}
+import org.apache.http.entity.{BasicHttpEntity, ContentLengthStrategy}
+import org.apache.http.impl.entity.StrictContentLengthStrategy
 import org.apache.http.impl.io.{
-  DefaultHttpRequestParser, HttpTransportMetricsImpl,
-  SessionInputBufferImpl, SessionOutputBufferImpl
+  ChunkedInputStream,  ContentLengthInputStream, DefaultHttpRequestParser,
+  HttpTransportMetricsImpl, IdentityInputStream, SessionInputBufferImpl,
+  SessionOutputBufferImpl
 }
+import org.apache.http.message.BasicHttpEntityEnclosingRequest
+import org.apache.http.util.EntityUtils
 import scala.collection.mutable.HashMap
 
 trait FlatApp {
@@ -56,23 +62,29 @@ object app {
           val inputBuffer = new SessionInputBufferImpl(new HttpTransportMetricsImpl, 1024)
           inputBuffer.bind(socket.getInputStream)
           val requestParser = new DefaultHttpRequestParser(inputBuffer)
-          requestParser.parse
-        }
-        .onErrorRestartIf {
-          case ioe: IOException if ioe.getMessage == "Stream closed" =>
-            Logger.debug("Caught stream closed exception")
-            true
-          case cce: ConnectionClosedException if cce.getMessage == "Client closed connection" =>
-            Logger.debug("Caught client closed exception")
-            false
-          case t: Throwable =>
-            Logger.error(s"Unknown error parsing request", t)
-            true
-        }
-        .map { request =>
-          Logger.debug(s"Received request:\n$request")
+          val request = requestParser.parse
+
           if (request.getRequestLine.getProtocolVersion != HttpVersion.HTTP_1_1)
             throw new RuntimeException("Encountered unhandled http version")
+
+          val body = {
+            if (request.isInstanceOf[BasicHttpEntityEnclosingRequest]) {
+              val contentLength = StrictContentLengthStrategy.INSTANCE.determineLength(request)
+              val contentStream = contentLength match {
+                case ContentLengthStrategy.CHUNKED =>
+                  new ChunkedInputStream(inputBuffer)
+                case ContentLengthStrategy.IDENTITY =>
+                  new IdentityInputStream(inputBuffer)
+                case _ =>
+                  new ContentLengthInputStream(inputBuffer, contentLength)
+              }
+              val entity = new BasicHttpEntity
+              entity.setContent(contentStream)
+              Some(EntityUtils.toString(entity, StandardCharsets.UTF_8))
+            }
+            else None
+          }
+
           val method = request.getRequestLine.getMethod match {
             case "GET"     => GET
             case "POST"    => POST
@@ -85,11 +97,26 @@ object app {
             case "CONNECT" => CONNECT
             case _ => throw new RuntimeException("Encountered unhandled http method")
           }
-          HttpRequest(
+
+          val flatRequest = HttpRequest(
             method,
             request.getRequestLine.getUri,
-            request.getAllHeaders.toList.map(h => (h.getName, h.getValue))
+            request.getAllHeaders.toList.map(h => (h.getName, h.getValue)),
+            body
           )
+          Logger.debug(s"Received request:\n$flatRequest")
+          flatRequest
+        }
+        .onErrorRestartIf {
+          case ioe: IOException if ioe.getMessage == "Stream closed" =>
+            Logger.debug("Caught stream closed exception")
+            false
+          case cce: ConnectionClosedException if cce.getMessage == "Client closed connection" =>
+            Logger.debug("Caught client closed exception")
+            false
+          case t: Throwable =>
+            Logger.error(s"Unknown error parsing request", t)
+            true
         }
         .flatMap { request =>
           routes.get((request.uri, request.method)) match {

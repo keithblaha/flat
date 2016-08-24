@@ -15,8 +15,7 @@ final case object OPTIONS extends HttpMethod
 final case object PATCH extends HttpMethod
 final case object CONNECT extends HttpMethod
 
-// TODO - content
-case class HttpRequest(method: HttpMethod, uri: String, headers: List[(String,String)]) {
+case class HttpRequest(method: HttpMethod, uri: String, headers: List[(String,String)], body: Option[String] = None) {
 }
 
 // TODO - headers
