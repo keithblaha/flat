@@ -42,7 +42,7 @@ object app {
   }
 
   def route(uri: String)(handler: Handler): Unit = {
-    addRoute(uri, List(GET, POST, PUT, HEAD, DELETE, TRACE, OPTIONS, PATCH, CONNECT), handler)
+    addRoute(uri, List(GET, POST, PUT, DELETE, TRACE, OPTIONS, PATCH, CONNECT), handler)
   }
 
   def get(uri: String)(handler: Handler): Unit = {
@@ -104,7 +104,7 @@ object app {
             request.getAllHeaders.toList.map(h => (h.getName, h.getValue)),
             body
           )
-          Logger.debug(s"Received request:\n$flatRequest")
+          Logger.debug(s"Received request:\n$request")
           flatRequest
         }
         .onErrorRestartIf {
@@ -119,18 +119,20 @@ object app {
             true
         }
         .flatMap { request =>
-          routes.get((request.uri, request.method)) match {
+          val routedMethod = if (request.method == HEAD) GET else request.method
+          routes.get((request.uri, routedMethod)) match {
             case Some(handler) =>
-              handler(request)
+              handler(request).map { response =>
+                (request, response)
+              }.onErrorHandleWith { t =>
+                Logger.error("Uncaught error from handler", t)
+                Task.now(request, (InternalServerError("error")))
+              }
             case _ =>
-              Task.now(NotFound("not found"))
+              Task.now(request, NotFound("not found"))
           }
         }
-        .onErrorHandleWith { t =>
-          Logger.error("Uncaught error from handler", t)
-          Task.now(InternalServerError("error"))
-        }
-        .map { flatResponse =>
+        .map { case (flatRequest, flatResponse) =>
           val outputBuffer = new SessionOutputBufferImpl(new HttpTransportMetricsImpl, 1024)
           outputBuffer.bind(socket.getOutputStream)
           val responseWriter = new DefaultHttpResponseWriter(outputBuffer)
@@ -144,9 +146,11 @@ object app {
             new BasicHeader(n, v)
           }.toArray)
 
-          responseWriter.write(response)
-
-          flatResponse.bodyOpt.map { body =>
+          if (flatResponse.bodyOpt.isEmpty) {
+            responseWriter.write(response)
+          }
+          else {
+            val body = flatResponse.bodyOpt.get
             val entity = new BasicHttpEntity
             entity.setContent(new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)))
             response.setEntity(entity)
@@ -160,14 +164,18 @@ object app {
                 new ContentLengthOutputStream(outputBuffer, contentLength)
             }
 
-            entity.writeTo(contentStream)
-            contentStream.close
+            response.setHeader("Content-Length", contentLength.toString)
+            responseWriter.write(response)
+            if (flatRequest.method != HEAD) {
+              entity.writeTo(contentStream)
+              contentStream.close
+            }
           }
 
           outputBuffer.flush
           socket.shutdownOutput
           socket.close
-          Logger.debug(s"Sent response:\n$flatResponse")
+          Logger.debug(s"Sent response:\n$response")
         }
       })
       .onErrorRestartIf { t =>
