@@ -22,6 +22,7 @@ import org.apache.http.impl.io.{
 import org.apache.http.message.{BasicHeader, BasicHttpEntityEnclosingRequest, BasicHttpResponse}
 import org.apache.http.util.EntityUtils
 import scala.collection.mutable.HashMap
+import scala.language.implicitConversions
 
 trait FlatApp {
   implicit def sync2Async(response: HttpResponse): Task[HttpResponse] = Task.now(response)
@@ -126,10 +127,10 @@ object app {
                 (request, response)
               }.onErrorHandleWith { t =>
                 Logger.error("Uncaught error from handler", t)
-                Task.now(request, (InternalServerError("error")))
+                Task.now((request, InternalServerError("error")))
               }
             case _ =>
-              Task.now(request, NotFound("not found"))
+              Task.now((request, NotFound("not found")))
           }
         }
         .map { case (flatRequest, flatResponse) =>

@@ -14,6 +14,9 @@ lazy val flat = (project in file("."))
 
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % "1.1.7",
+      "io.circe" %% "circe-core" % "0.4.1",
+      "io.circe" %% "circe-generic" % "0.4.1",
+      "io.circe" %% "circe-parser" % "0.4.1",
       "io.monix" %% "monix" % "2.0-RC10",
       "org.apache.httpcomponents" % "httpcore" % "4.4.5"
     )
@@ -24,6 +27,18 @@ lazy val hello = (project in file(helloPath))
   .settings(commonSettings: _*)
   .settings(
     scalaSource in Compile := baseDirectory.value / helloPath
+  )
+  .dependsOn(flat)
+
+lazy val jsonPath = "examples/json"
+lazy val json = (project in file(jsonPath))
+  .settings(commonSettings: _*)
+  .settings(
+    scalaSource in Compile := baseDirectory.value / jsonPath,
+
+    addCompilerPlugin(
+      "org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full
+    )
   )
   .dependsOn(flat)
 

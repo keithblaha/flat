@@ -2,6 +2,8 @@
 
 package flat
 
+import io.circe.Json
+
 sealed trait HttpMethod
 final case object GET extends HttpMethod
 final case object POST extends HttpMethod
@@ -15,10 +17,34 @@ final case object CONNECT extends HttpMethod
 
 case class HttpRequest(method: HttpMethod, uri: String, headers: List[(String,String)], body: Option[String] = None)
 
-abstract class HttpResponse(val code: Int, val reason: String, val finalHeaders: List[(String,String)], val bodyOpt: Option[String] = None)
+class HttpResponse(val code: Int, val reason: String, val finalHeaders: Map[String,String], val bodyOpt: Option[String] = None)
 
-final case class OK(body: String, headers: List[(String,String)] = List()) extends HttpResponse(200, "OK", headers, Some(body))
-final case class BadRequest(body: String, headers: List[(String,String)] = List()) extends HttpResponse(400, "Bad Request", headers, Some(body))
-final case class NotFound(body: String, headers: List[(String,String)] = List()) extends HttpResponse(404, "Not Found", headers, Some(body))
-final case class InternalServerError(body: String, headers: List[(String,String)] = List()) extends HttpResponse(500, "Internal Service Error", headers, Some(body))
+object HttpResponse {
+  def create(code: Int, reason: String, contentOpt: Option[Any], headers: Map[String,String]): HttpResponse = {
+    val (body, contentHeader) = contentOpt match {
+      case Some(json: Json) =>
+        (Some(json.noSpaces), Map("Content-Type" -> "application/json; charset=utf-8"))
+      case Some(text: String) =>
+        (Some(text), Map("Content-Type" -> "text/plain; charset=utf-8"))
+      case None =>
+        (None, Map())
+      case _ =>
+        throw new RuntimeException("Encountered unknown content type")
+    }
+    new HttpResponse(200, "OK", headers ++ contentHeader, body)
+  }
+}
+
+object OK {
+  def apply(content: Any, headers: Map[String,String] = Map()) = HttpResponse.create(200, "OK", Some(content), headers)
+}
+object BadRequest {
+  def apply(content: Any, headers: Map[String,String] = Map()) = HttpResponse.create(400, "Bad Request", Some(content), headers)
+}
+object NotFound {
+  def apply(content: Any, headers: Map[String,String] = Map()) = HttpResponse.create(404, "Not Found", Some(content), headers)
+}
+object InternalServerError {
+  def apply(content: Any, headers: Map[String,String] = Map()) = HttpResponse.create(500, "Internal Server Error", Some(content), headers)
+}
 
