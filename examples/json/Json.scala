@@ -19,9 +19,9 @@ object Json extends App with FlatApp {
     OK(circle.asJson)
   }
 
-  @JsonCodec case class Square(points: List[Point])
+  @JsonCodec case class Polygon(points: List[Point])
   app.get("/square") { request =>
-    val square = Square(List(
+    val square = Polygon(List(
       Point(1, 1),
       Point(1, -1),
       Point(-1, -1),
