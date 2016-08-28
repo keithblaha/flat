@@ -4,7 +4,7 @@ package flat
 
 import flat.logging.Logger
 import java.io.{ByteArrayInputStream, IOException}
-import java.net.{ServerSocket, Socket}
+import java.net.{ServerSocket, Socket, SocketException}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 import monix.eval.Task
@@ -23,14 +23,13 @@ import org.apache.http.message.{BasicHeader, BasicHttpEntityEnclosingRequest, Ba
 import org.apache.http.util.EntityUtils
 import scala.collection.mutable.HashMap
 import scala.language.implicitConversions
+import scala.util.{Failure, Success, Try}
 
 trait FlatApp {
   implicit def sync2Async(response: HttpResponse): Task[HttpResponse] = Task.now(response)
 }
 
 object app {
-  val parallelism = Math.ceil(Runtime.getRuntime.availableProcessors / 2.0).toInt
-
   private type Handler = (HttpRequest) => Task[HttpResponse]
 
   private val routes = HashMap.empty[(String,HttpMethod),Handler]
@@ -43,21 +42,37 @@ object app {
   }
 
   def route(uri: String)(handler: Handler): Unit = {
-    addRoute(uri, List(GET, POST, PUT, DELETE, TRACE, OPTIONS, PATCH, CONNECT), handler)
+    addRoute(uri, List(GET, POST, PUT, DELETE, TRACE, OPTIONS, PATCH), handler)
   }
 
   def get(uri: String)(handler: Handler): Unit = {
     addRoute(uri, List(GET), handler)
   }
 
+  private val parallelism = Math.ceil(Runtime.getRuntime.availableProcessors / 2.0).toInt
   private val executor = Executors.newScheduledThreadPool(parallelism * 2)
   implicit val scheduler = Scheduler(executor, ExecutionModel.Default)
 
+  private var serverSocketOpt = Option.empty[ServerSocket]
+  private var serverCancelableOpt = Option.empty[CancelableFuture[Unit]]
+
   def start: Unit = start(9000)
   def start(port: Int): Unit = {
-    val serverSocket = new ServerSocket(port)
-    Observable
-      .repeatEval(serverSocket.accept)
+    serverSocketOpt = Some(new ServerSocket(port))
+
+    serverCancelableOpt = Some(Observable
+      .repeatEval(serverSocketOpt.filterNot(_.isClosed).map(s => Try(s.accept)))
+      .map {
+        case Some(Success(socket)) =>
+          Some(socket)
+        case Some(Failure(t)) if !(t.isInstanceOf[SocketException] && t.getMessage == "Socket closed") =>
+          throw t
+        case _ =>
+          None
+      }
+      .collect {
+        case Some(socket) => socket
+      }
       .runWith(Consumer.foreachParallelAsync[Socket](parallelism) { socket =>
         Task {
           val inputBuffer = new SessionInputBufferImpl(new HttpTransportMetricsImpl, 1024)
@@ -67,6 +82,8 @@ object app {
 
           if (request.getRequestLine.getProtocolVersion != HttpVersion.HTTP_1_1)
             throw new RuntimeException("Encountered unhandled http version")
+
+          val version = HttpVersion.HTTP_1_1
 
           val body = {
             if (request.isInstanceOf[BasicHttpEntityEnclosingRequest]) {
@@ -95,11 +112,11 @@ object app {
             case "TRACE"   => TRACE
             case "OPTIONS" => OPTIONS
             case "PATCH"   => PATCH
-            case "CONNECT" => CONNECT
             case _ => throw new RuntimeException("Encountered unhandled http method")
           }
 
           val flatRequest = HttpRequest(
+            version,
             method,
             request.getRequestLine.getUri,
             request.getAllHeaders.toList.map(h => (h.getName, h.getValue)),
@@ -143,7 +160,7 @@ object app {
             flatResponse.reason
           )
 
-          response.setHeaders(flatResponse.finalHeaders.map { case (n,v) =>
+          response.setHeaders(flatResponse.headers.map { case (n,v) =>
             new BasicHeader(n, v)
           }.toArray)
 
@@ -180,16 +197,36 @@ object app {
         }
       })
       .onErrorRestartIf { t =>
-        Logger.error("Uncaught error in server task", t)
+        t match {
+          case cce: ConnectionClosedException if cce.getMessage == "Client closed connection" => ()
+          case se: SocketException if t.getMessage == "Socket is closed" => ()
+          case t: Throwable =>
+            Logger.error("Unexpected error caught in server task", t)
+        }
+
         false
       }
       .delayExecutionWith(Task.now {
-        Logger.info(s"Running on port ${Console.CYAN}$port${Console.RESET}")
+        Logger.info(s"Starting server on port ${Console.CYAN}$port${Console.RESET}")
       })
-      .doOnFinish { _ =>
-        Task.now(serverSocket.close)
-      }
       .runAsync
+    )
+  }
+
+  def stop: Unit = {
+    serverCancelableOpt match {
+      case Some(serverCancelable) =>
+        Logger.info("Stopping server")
+        serverCancelable.cancel
+        serverSocketOpt.map(_.close).getOrElse(throw new RuntimeException("Trying to close server socket that wasn't open"))
+      case None =>
+        throw new RuntimeException("Trying to stop app that is not running")
+    }
+  }
+
+  def clear: Unit = {
+    Logger.info("Clearing server")
+    routes.clear
   }
 }
 

@@ -18,8 +18,14 @@ lazy val flat = (project in file("."))
       "io.circe" %% "circe-generic" % "0.4.1",
       "io.circe" %% "circe-parser" % "0.4.1",
       "io.monix" %% "monix" % "2.0-RC10",
-      "org.apache.httpcomponents" % "httpcore" % "4.4.5"
-    )
+      "org.apache.httpcomponents" % "httpcore" % "4.4.5",
+
+      "org.apache.httpcomponents" % "httpclient" % "4.5.2" % "test",
+      "org.scalatest" %% "scalatest" % "3.0.0" % "test"
+    ),
+
+    fork in Test := true,
+    javaOptions in Test +="-Dlogger.resource=logback-test.xml"
   )
 
 lazy val helloPath = "examples/hello"
