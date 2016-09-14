@@ -11,9 +11,9 @@ final case object POST extends HttpMethod
 final case object PUT extends HttpMethod
 final case object HEAD extends HttpMethod
 final case object DELETE extends HttpMethod
-final case object TRACE extends HttpMethod
 final case object OPTIONS extends HttpMethod
 final case object PATCH extends HttpMethod
+final case object TRACE extends HttpMethod
 
 case class HttpRequest(
   version: ProtocolVersion,
@@ -55,6 +55,9 @@ object BadRequest {
 }
 object NotFound {
   def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(404, "Not Found", Some(content), extraHeaders)
+}
+object MethodNotAllowed {
+  def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(405, "Method Not Allowed", Some(content), extraHeaders)
 }
 object InternalServerError {
   def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(500, "Internal Server Error", Some(content), extraHeaders)
