@@ -50,6 +50,9 @@ object HttpResponse {
 object OK {
   def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(200, "OK", Some(content), extraHeaders)
 }
+object Found {
+  def apply(location: String) = HttpResponse.create(302, "Found", None, List("Location" -> location))
+}
 object BadRequest {
   def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(400, "Bad Request", Some(content), extraHeaders)
 }

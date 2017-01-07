@@ -1,7 +1,7 @@
 lazy val commonSettings = Seq(
   organization := "flat",
-  version := "0.1.0",
-  scalaVersion := "2.11.8"
+  version := "0.2.0",
+  scalaVersion := "2.12.1"
 )
 
 lazy val flat = (project in file("."))
@@ -14,10 +14,10 @@ lazy val flat = (project in file("."))
 
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % "1.1.7",
-      "io.circe" %% "circe-core" % "0.4.1",
-      "io.circe" %% "circe-generic" % "0.4.1",
-      "io.circe" %% "circe-parser" % "0.4.1",
-      "io.monix" %% "monix" % "2.0-RC10",
+      "io.circe" %% "circe-core" % "0.6.1",
+      "io.circe" %% "circe-generic" % "0.6.1",
+      "io.circe" %% "circe-parser" % "0.6.1",
+      "io.monix" %% "monix" % "2.1.2",
       "org.apache.httpcomponents" % "httpcore" % "4.4.5",
 
       "org.apache.httpcomponents" % "httpclient" % "4.5.2" % "test",
