@@ -1,6 +1,6 @@
 lazy val commonSettings = Seq(
   organization := "flat",
-  version := "0.2.0",
+  version := "0.3.0",
   scalaVersion := "2.12.1"
 )
 
@@ -19,8 +19,8 @@ lazy val flat = (project in file("."))
       "io.circe" %% "circe-parser" % "0.6.1",
       "io.monix" %% "monix" % "2.1.2",
       "org.apache.httpcomponents" % "httpcore" % "4.4.5",
+      "org.apache.httpcomponents" % "httpclient" % "4.5.2",
 
-      "org.apache.httpcomponents" % "httpclient" % "4.5.2" % "test",
       "org.scalatest" %% "scalatest" % "3.0.0" % "test"
     ),
 

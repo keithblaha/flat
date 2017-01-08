@@ -5,6 +5,7 @@ package flat
 import flat.utils.HttpClient
 import org.apache.http.HttpVersion
 import org.scalatest._
+import scala.util.{Failure, Success}
 
 class ServerSpec extends FlatSpec with Matchers with BeforeAndAfter with FlatApp {
   val port = 9001
@@ -23,12 +24,16 @@ class ServerSpec extends FlatSpec with Matchers with BeforeAndAfter with FlatApp
     }
     app.start(port)
 
-    val response = HttpClient.get(rootUrl)
-    response.version shouldEqual HttpVersion.HTTP_1_1
-    response.code shouldEqual rootResponse.code
-    response.reason shouldEqual rootResponse.reason
-    response.headers should contain ("Content-Type" -> "text/plain; charset=utf-8")
-    response.bodyOpt shouldEqual rootResponse.bodyOpt
+    HttpClient.getSync(rootUrl) match {
+      case Success(response) =>
+        response.version shouldEqual HttpVersion.HTTP_1_1
+        response.code shouldEqual rootResponse.code
+        response.reason shouldEqual rootResponse.reason
+        response.headers should contain ("Content-Type" -> "text/plain; charset=utf-8")
+        response.bodyOpt shouldEqual rootResponse.bodyOpt
+      case Failure(e) =>
+        throw e
+    }
   }
 
   it should "respond to HEAD with GET routes using the handler but without sending body" in {
@@ -37,12 +42,16 @@ class ServerSpec extends FlatSpec with Matchers with BeforeAndAfter with FlatApp
     }
     app.start(port)
 
-    val response = HttpClient.head(rootUrl)
-    response.version shouldEqual HttpVersion.HTTP_1_1
-    response.code shouldEqual rootResponse.code
-    response.reason shouldEqual rootResponse.reason
-    response.headers should contain ("Content-Type" -> "text/plain; charset=utf-8")
-    response.bodyOpt shouldEqual None
+    HttpClient.headSync(rootUrl) match {
+      case Success(response) =>
+        response.version shouldEqual HttpVersion.HTTP_1_1
+        response.code shouldEqual rootResponse.code
+        response.reason shouldEqual rootResponse.reason
+        response.headers should contain ("Content-Type" -> "text/plain; charset=utf-8")
+        response.bodyOpt shouldEqual None
+      case Failure(e) =>
+        throw e
+    }
   }
 
   it should "respond to TRACE with method not allowed" in {
@@ -53,11 +62,15 @@ class ServerSpec extends FlatSpec with Matchers with BeforeAndAfter with FlatApp
 
     val expectedResponse = MethodNotAllowed("")
 
-    val response = HttpClient.trace(rootUrl)
-    response.version shouldEqual HttpVersion.HTTP_1_1
-    response.code shouldEqual expectedResponse.code
-    response.reason shouldEqual expectedResponse.reason
-    response.headers should contain ("Content-Type" -> "text/plain; charset=utf-8")
+    HttpClient.traceSync(rootUrl) match {
+      case Success(response) =>
+        response.version shouldEqual HttpVersion.HTTP_1_1
+        response.code shouldEqual expectedResponse.code
+        response.reason shouldEqual expectedResponse.reason
+        response.headers should contain ("Content-Type" -> "text/plain; charset=utf-8")
+      case Failure(e) =>
+        throw e
+    }
   }
 }
 
