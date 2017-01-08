@@ -31,11 +31,15 @@ class HttpResponse(
   val bodyOpt: Option[String] = None
 )
 
+case class Html(text: String)
+
 object HttpResponse {
   def create(code: Int, reason: String, contentOpt: Option[Any], extraHeaders: List[(String,String)]): HttpResponse = {
     val (body, contentHeader) = contentOpt match {
       case Some(json: Json) =>
         (Some(json.noSpaces), Map("Content-Type" -> "application/json; charset=utf-8"))
+      case Some(html: Html) =>
+        (Some(html.text), Map("Content-Type" -> "text/html; charset=utf-8"))
       case Some(text: String) =>
         (Some(text), Map("Content-Type" -> "text/plain; charset=utf-8"))
       case None =>
