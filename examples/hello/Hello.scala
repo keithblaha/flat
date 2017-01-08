@@ -6,11 +6,11 @@ import flat._
 
 object Hello extends App with FlatApp {
   app.get("/") { request =>
-    OK("hello!")
+    Ok("hello!")
   }
 
   app.route("/flat-is-neat", List(GET, POST)) { request =>
-    OK("i know ;)")
+    Ok("i know ;)")
   }
 
   app.route("/flat-is-lame", List(GET, POST)) { request =>
@@ -18,7 +18,7 @@ object Hello extends App with FlatApp {
   }
 
   app.route("/can-you-handle-anything") { request =>
-    OK("you bet")
+    Ok("you bet")
   }
 
   app.start

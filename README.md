@@ -4,7 +4,7 @@ import flat._
 
 object Hello extends App with FlatApp {
   app.get("/") { request =>
-    OK("hello!")
+    Ok("hello!")
   }
 
   app.start(9000)

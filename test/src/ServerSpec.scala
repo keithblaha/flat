@@ -11,7 +11,7 @@ class ServerSpec extends FlatSpec with Matchers with BeforeAndAfter with FlatApp
   val port = 9001
   val rootPath = "/"
   val rootUrl = s"http://localhost:$port$rootPath"
-  val rootResponse = OK("cool")
+  val rootResponse = Ok("cool")
 
   after {
     app.stop

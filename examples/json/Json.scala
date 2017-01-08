@@ -10,13 +10,13 @@ object Json extends App with FlatApp {
   @JsonCodec case class Point(x: Double, y: Double)
   app.get("/point") { request =>
     val point = Point(0, 0)
-    OK(point.asJson)
+    Ok(point.asJson)
   }
 
   @JsonCodec case class Circle(label: String, radius: Double, point: Point)
   app.get("/circle") { request =>
     val circle = Circle("unit", 1, Point(0, 0))
-    OK(circle.asJson)
+    Ok(circle.asJson)
   }
 
   @JsonCodec case class Polygon(points: List[Point])
@@ -27,7 +27,7 @@ object Json extends App with FlatApp {
       Point(-1, -1),
       Point(-1, 1)
     ))
-    OK(square.asJson)
+    Ok(square.asJson)
   }
 
   app.start
