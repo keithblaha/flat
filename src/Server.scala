@@ -21,7 +21,7 @@ import org.apache.http.impl.io.{
 }
 import org.apache.http.message.{BasicHeader, BasicHttpEntityEnclosingRequest, BasicHttpResponse}
 import org.apache.http.util.EntityUtils
-import scala.collection.mutable.HashMap
+import scala.collection.mutable.{ArrayBuffer, HashMap}
 import scala.language.implicitConversions
 import scala.util.{Failure, Success, Try}
 
@@ -64,6 +64,11 @@ object app {
   def options(uri: String)(handler: Handler): Unit = {
     addRoute(uri, List(OPTIONS), handler)
   }
+
+  private type Prehandler = (HttpRequest) => Option[HttpResponse]
+  private val prehandlers = ArrayBuffer.empty[Prehandler]
+
+  def addPrehandler(prehandler: Prehandler) = prehandlers += prehandler
 
   abstract class FlatException(m: String, t: Option[Throwable]) extends RuntimeException(m, t.getOrElse(null))
   case class UnsupportedMethodException(m: String, t: Option[Throwable] = None) extends FlatException(m, t)
@@ -203,17 +208,23 @@ object app {
             true
         }
         .flatMap { request =>
-          val routedMethod = if (request.method == HEAD) GET else request.method
-          routes.get((request.uri, routedMethod)) match {
-            case Some(handler) =>
-              handler(request).map { response =>
-                (request, response)
-              }.onErrorHandleWith { t =>
-                Logger.error("Uncaught error from handler", t)
-                Task.now((request, InternalServerError("error")))
-              }
+          val prehandledOpt = prehandlers.map(prehandler => prehandler(request)).find(_.isDefined)
+          prehandledOpt match {
+            case Some(Some(prehandledResponse)) =>
+              Task.now((request, prehandledResponse))
             case _ =>
-              Task.now((request, NotFound("not found")))
+              val routedMethod = if (request.method == HEAD) GET else request.method
+              routes.get((request.uri, routedMethod)) match {
+                case Some(handler) =>
+                  handler(request).map { response =>
+                    (request, response)
+                  }.onErrorHandleWith { t =>
+                    Logger.error("Uncaught error from handler", t)
+                    Task.now((request, InternalServerError("error")))
+                  }
+                case _ =>
+                  Task.now((request, NotFound("not found")))
+              }
           }
         }
         .map { case (flatRequest, flatResponse) =>
