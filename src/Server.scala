@@ -6,6 +6,8 @@ import flat.logging.Logger
 import java.io.{ByteArrayInputStream, IOException}
 import java.net.{ServerSocket, Socket, SocketException}
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.util.Base64
 import java.util.concurrent.Executors
 import monix.eval.Task
 import monix.execution.{CancelableFuture, Scheduler}
@@ -26,13 +28,26 @@ import scala.language.implicitConversions
 import scala.util.{Failure, Success, Try}
 
 trait FlatApp {
-  implicit def sync2Async(response: HttpResponse): Task[HttpResponse] = Task.now(response)
+  import Ws._
+  implicit def handlerSync2Async(response: HttpResponse): Task[HttpResponse] = Task.now(response)
+  implicit def unitSync2Async(work: Unit): Task[Unit] = Task.now(work)
+  implicit def wsConnectAsync(connect: WsOnConnectAsync): WsOnConnect = Left(connect)
+  implicit def wsConnectSync(connect: WsOnConnectSync): WsOnConnect = Right(connect)
+  implicit def wsMessageAsync(message: WsOnMessageAsync): WsOnMessage = Left(message)
+  implicit def wsMessageSync(message: WsOnMessageSync): WsOnMessage = Right(message)
 }
 
+abstract class FlatException(m: String, t: Option[Throwable]) extends RuntimeException(m, t.getOrElse(null))
+case class UnsupportedMethodException(m: String, t: Option[Throwable] = None) extends FlatException(m, t)
+
 object app {
+  private val parallelism = Math.ceil(Runtime.getRuntime.availableProcessors / 2.0).toInt
+  private val executor = Executors.newScheduledThreadPool(parallelism * 2)
+  implicit val scheduler = Scheduler(executor, ExecutionModel.Default)
+
   private type Handler = (HttpRequest) => Task[HttpResponse]
 
-  private val routes = HashMap.empty[(String,HttpMethod),Handler]
+  private val routes = HashMap.empty[(String, HttpMethod), Handler]
   private def addRoute(uri: String, methods: List[HttpMethod], handler: Handler) = {
     if (methods.contains(TRACE)) throw new RuntimeException("TRACE requests are not supported")
     methods.foreach(method => routes += (uri, method) -> handler)
@@ -65,22 +80,28 @@ object app {
     addRoute(uri, List(OPTIONS), handler)
   }
 
+  private type WsHandler = (WsContext) => Task[Unit]
+
+  private val wsRoutes = HashMap.empty[String, WsHandler]
+
+  def ws(uri: String)(handler: WsHandler): Unit = {
+    wsRoutes += uri -> handler
+  }
+
   private type Prehandler = (HttpRequest) => Option[HttpResponse]
   private val prehandlers = ArrayBuffer.empty[Prehandler]
 
   def addPrehandler(prehandler: Prehandler) = prehandlers += prehandler
 
-  abstract class FlatException(m: String, t: Option[Throwable]) extends RuntimeException(m, t.getOrElse(null))
-  case class UnsupportedMethodException(m: String, t: Option[Throwable] = None) extends FlatException(m, t)
-
-  private val parallelism = Math.ceil(Runtime.getRuntime.availableProcessors / 2.0).toInt
-  private val executor = Executors.newScheduledThreadPool(parallelism * 2)
-  implicit val scheduler = Scheduler(executor, ExecutionModel.Default)
-
   private var serverSocketOpt = Option.empty[ServerSocket]
   private var serverCancelableOpt = Option.empty[CancelableFuture[Unit]]
 
-  private def sendResponse(socket: Socket, flatResponse: HttpResponse, flatRequestOpt: Option[HttpRequest] = None): Unit = {
+  private def sendResponse(
+    socket: Socket,
+    flatResponse: HttpResponse,
+    flatRequestOpt: Option[HttpRequest] = None,
+    wsHandlerOpt: Option[WsHandler] = None
+  ): Unit = {
     val outputBuffer = new SessionOutputBufferImpl(new HttpTransportMetricsImpl, 1024)
     outputBuffer.bind(socket.getOutputStream)
     val responseWriter = new DefaultHttpResponseWriter(outputBuffer)
@@ -120,10 +141,49 @@ object app {
       }
     }
 
-    outputBuffer.flush
-    socket.shutdownOutput
-    socket.close
-    Logger.debug(s"Sent response:\n$response")
+    wsHandlerOpt match {
+      case Some(wsHandler) =>
+        val wsContext = registerWs(socket, wsHandler)
+        outputBuffer.flush
+        Logger.debug(s"Sent response and keeping alive:\n$response")
+        wsContext.triggerOnConnect
+      case _ =>
+        outputBuffer.flush
+        Logger.debug(s"Sent response and closing:\n$response")
+        socket.shutdownOutput
+        socket.close
+    }
+  }
+
+  private def registerWs(socket: Socket, wsHandler: WsHandler): WsContext = {
+    val wsContext = new WsContext(socket)
+    wsHandler(wsContext)
+
+    Observable
+      .repeatEval {
+        socket.getInputStream.available > 0
+      }
+      .collect {
+        case true => ()
+      }
+      .foreach { _ =>
+        try {
+          val payload = Ws.getPayload(socket)
+          wsContext.triggerOnMessage(payload)
+        }
+        catch {
+          case fwe: FlatWsException =>
+            Logger.debug(fwe.getMessage)
+            socket.shutdownOutput
+            socket.close
+          case e: Exception =>
+            Logger.error("Websocket closing due to following error", e)
+            socket.shutdownOutput
+            socket.close
+        }
+      }
+
+    wsContext
   }
 
   def start: Unit = start(9000)
@@ -143,7 +203,7 @@ object app {
       .collect {
         case Some(socket) => socket
       }
-      .runWith(Consumer.foreachParallelAsync[Socket](parallelism) { socket =>
+      .consumeWith(Consumer.foreachParallelAsync[Socket](parallelism) { socket =>
         Task {
           val inputBuffer = new SessionInputBufferImpl(new HttpTransportMetricsImpl, 1024)
           inputBuffer.bind(socket.getInputStream)
@@ -204,31 +264,57 @@ object app {
           case ume: UnsupportedMethodException =>
             false
           case t: Throwable =>
-            Logger.error(s"Unknown error parsing request", t)
+            Logger.error("Unknown error parsing request", t)
             true
         }
         .flatMap { request =>
           val prehandledOpt = prehandlers.map(prehandler => prehandler(request)).find(_.isDefined)
           prehandledOpt match {
             case Some(Some(prehandledResponse)) =>
-              Task.now((request, prehandledResponse))
+              Task.now((request, prehandledResponse, None))
             case _ =>
-              val routedMethod = if (request.method == HEAD) GET else request.method
-              routes.get((request.uri, routedMethod)) match {
-                case Some(handler) =>
-                  handler(request).map { response =>
-                    (request, response)
-                  }.onErrorHandleWith { t =>
-                    Logger.error("Uncaught error from handler", t)
-                    Task.now((request, InternalServerError("error")))
-                  }
+              val isWsHandshake = request.method == GET &&
+                  wsRoutes.contains(request.uri) &&
+                  request.headers.contains("Connection" -> "Upgrade") &&
+                  request.headers.contains("Upgrade" -> "websocket") &&
+                  request.headers.contains("Sec-WebSocket-Version" -> "13") &&
+                  request.headers.exists(_._1 == "Sec-WebSocket-Key")
+
+              isWsHandshake match {
+                case true =>
+                  val wsAccept = request.headers.find(_._1 == "Sec-WebSocket-Key")
+                      .map(_._2 + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+                      .map(_.getBytes(StandardCharsets.UTF_8))
+                      .map(MessageDigest.getInstance("SHA-1").digest(_))
+                      .map(Base64.getEncoder.encodeToString(_))
+                      .get
+                  Task.now((
+                    request,
+                    SwitchingProtocols(List(
+                      "Connection" -> "Upgrade",
+                      "Upgrade" -> "websocket",
+                      "Sec-WebSocket-Accept" -> wsAccept
+                    )),
+                    wsRoutes.get(request.uri)
+                  ))
                 case _ =>
-                  Task.now((request, NotFound("not found")))
+                  val routedMethod = if (request.method == HEAD) GET else request.method
+                  routes.get((request.uri, routedMethod)) match {
+                    case Some(handler) =>
+                      handler(request).map { response =>
+                        (request, response, None)
+                      }.onErrorHandleWith { t =>
+                        Logger.error("Uncaught error from handler", t)
+                        Task.now((request, InternalServerError("error"), None))
+                      }
+                    case _ =>
+                      Task.now((request, NotFound("not found"), None))
+                  }
               }
           }
         }
-        .map { case (flatRequest, flatResponse) =>
-          sendResponse(socket, flatResponse, Some(flatRequest))
+        .map { case (flatRequest, flatResponse, wsHandlerOpt) =>
+          sendResponse(socket, flatResponse, Some(flatRequest), wsHandlerOpt)
         }
         .onErrorHandle { t =>
           t match {
@@ -273,4 +359,3 @@ object app {
     routes.clear
   }
 }
-

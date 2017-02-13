@@ -73,4 +73,3 @@ class ServerSpec extends FlatSpec with Matchers with BeforeAndAfter with FlatApp
     }
   }
 }
-

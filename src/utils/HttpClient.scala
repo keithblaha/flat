@@ -23,7 +23,7 @@ import scala.util.Try
 object HttpClient {
   private val client = HttpClients.createDefault
 
-  private def doRequest(method: HttpMethod, url: String, formValues: List[(String,String)] = List()): HttpResponse = {
+  private def doRequest(method: HttpMethod, url: String, formValues: List[(String, String)] = List()): HttpResponse = {
     val request = method match {
       case DELETE => new HttpDelete(url)
       case GET => new HttpGet(url)
@@ -65,7 +65,7 @@ object HttpClient {
   def head(url: String): Task[Try[HttpResponse]] = Task { doRequest(HEAD, url) }.materialize
   def options(url: String): Task[Try[HttpResponse]] = Task { doRequest(OPTIONS, url) }.materialize
   def patch(url: String): Task[Try[HttpResponse]] = Task { doRequest(PATCH, url) }.materialize
-  def post(url: String, formValues: List[(String,String)] = List()): Task[Try[HttpResponse]] = Task { doRequest(POST, url, formValues) }.materialize
+  def post(url: String, formValues: List[(String, String)] = List()): Task[Try[HttpResponse]] = Task { doRequest(POST, url, formValues) }.materialize
   def put(url: String): Task[Try[HttpResponse]] = Task { doRequest(PUT, url) }.materialize
   def trace(url: String): Task[Try[HttpResponse]] = Task { doRequest(TRACE, url) }.materialize
 
@@ -74,8 +74,7 @@ object HttpClient {
   def headSync(url: String, timeout: Duration = 10.seconds): Try[HttpResponse] =  Await.result(head(url).runAsync, timeout)
   def optionsSync(url: String, timeout: Duration = 10.seconds): Try[HttpResponse] =  Await.result(options(url).runAsync, timeout)
   def patchSync(url: String, timeout: Duration = 10.seconds): Try[HttpResponse] =  Await.result(patch(url).runAsync, timeout)
-  def postSync(url: String, formValues: List[(String,String)] = List(), timeout: Duration = 10.seconds): Try[HttpResponse] =  Await.result(post(url, formValues).runAsync, timeout)
+  def postSync(url: String, formValues: List[(String, String)] = List(), timeout: Duration = 10.seconds): Try[HttpResponse] =  Await.result(post(url, formValues).runAsync, timeout)
   def putSync(url: String, timeout: Duration = 10.seconds): Try[HttpResponse] =  Await.result(put(url).runAsync, timeout)
   def traceSync(url: String, timeout: Duration = 10.seconds): Try[HttpResponse] =  Await.result(trace(url).runAsync, timeout)
 }
-

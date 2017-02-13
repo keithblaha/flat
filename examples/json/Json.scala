@@ -32,4 +32,3 @@ object Json extends App with FlatApp {
 
   app.start
 }
-

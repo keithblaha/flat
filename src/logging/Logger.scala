@@ -14,4 +14,3 @@ object Logger {
   def error(s: String) = logger.error(s)
   def error(s: String, t: Throwable) = logger.error(s, t)
 }
-

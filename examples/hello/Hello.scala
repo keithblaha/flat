@@ -23,4 +23,3 @@ object Hello extends App with FlatApp {
 
   app.start
 }
-

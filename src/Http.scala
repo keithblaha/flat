@@ -19,7 +19,7 @@ case class HttpRequest(
   version: ProtocolVersion,
   method: HttpMethod,
   uri: String,
-  headers: List[(String,String)],
+  headers: List[(String, String)],
   bodyOpt: Option[String] = None
 )
 
@@ -27,14 +27,14 @@ class HttpResponse(
   val version: ProtocolVersion,
   val code: Int,
   val reason: String,
-  val headers: List[(String,String)],
+  val headers: List[(String, String)],
   val bodyOpt: Option[String] = None
 )
 
 case class Html(text: String)
 
 object HttpResponse {
-  def create(code: Int, reason: String, contentOpt: Option[Any], extraHeaders: List[(String,String)]): HttpResponse = {
+  def create(code: Int, reason: String, contentOpt: Option[Any], extraHeaders: List[(String, String)]): HttpResponse = {
     val (body, contentHeader) = contentOpt match {
       case Some(json: Json) =>
         (Some(json.noSpaces), Map("Content-Type" -> "application/json; charset=utf-8"))
@@ -43,7 +43,7 @@ object HttpResponse {
       case Some(text: String) =>
         (Some(text), Map("Content-Type" -> "text/plain; charset=utf-8"))
       case None =>
-        (None, Map.empty[String,String])
+        (None, Map.empty[String, String])
       case _ =>
         throw new RuntimeException("Encountered unknown content type")
     }
@@ -52,21 +52,23 @@ object HttpResponse {
 }
 
 object Ok {
-  def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(200, "Ok", Some(content), extraHeaders)
+  def apply(content: Any, extraHeaders: List[(String, String)] = List()) = HttpResponse.create(200, "Ok", Some(content), extraHeaders)
+}
+object SwitchingProtocols {
+  def apply(extraHeaders: List[(String, String)] = List()) = HttpResponse.create(101, "Switching Protocols", None, extraHeaders)
 }
 object Found {
   def apply(location: String) = HttpResponse.create(302, "Found", None, List("Location" -> location))
 }
 object BadRequest {
-  def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(400, "Bad Request", Some(content), extraHeaders)
+  def apply(content: Any, extraHeaders: List[(String, String)] = List()) = HttpResponse.create(400, "Bad Request", Some(content), extraHeaders)
 }
 object NotFound {
-  def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(404, "Not Found", Some(content), extraHeaders)
+  def apply(content: Any, extraHeaders: List[(String, String)] = List()) = HttpResponse.create(404, "Not Found", Some(content), extraHeaders)
 }
 object MethodNotAllowed {
-  def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(405, "Method Not Allowed", Some(content), extraHeaders)
+  def apply(content: Any, extraHeaders: List[(String, String)] = List()) = HttpResponse.create(405, "Method Not Allowed", Some(content), extraHeaders)
 }
 object InternalServerError {
-  def apply(content: Any, extraHeaders: List[(String,String)] = List()) = HttpResponse.create(500, "Internal Server Error", Some(content), extraHeaders)
+  def apply(content: Any, extraHeaders: List[(String, String)] = List()) = HttpResponse.create(500, "Internal Server Error", Some(content), extraHeaders)
 }
-

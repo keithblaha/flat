@@ -18,4 +18,3 @@
     <appender-ref ref="ASYNC_STD_OUT" />
   </root>
 </configuration>
-

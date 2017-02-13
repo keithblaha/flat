@@ -48,3 +48,10 @@ lazy val json = (project in file(jsonPath))
   )
   .dependsOn(flat)
 
+lazy val wsPath = "examples/ws"
+lazy val ws = (project in file(wsPath))
+  .settings(commonSettings: _*)
+  .settings(
+    scalaSource in Compile := baseDirectory.value / wsPath
+  )
+  .dependsOn(flat)

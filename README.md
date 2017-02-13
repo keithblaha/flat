@@ -18,4 +18,3 @@ Simply put, flat is an async-first, functional-first, observer pattern based HTT
 
 # Should I use flat?
 For fun, absolutely, but flat is currently experimental. The whole API could change at any moment, or I could find a shiny new side project and stop working on it. If it ever reaches 1.0 I'll revise this, but for now I'd recommend against using it for anything important.
-
