@@ -120,14 +120,16 @@ object Ws {
   }
 
   def getPayload(socket: Socket): String = {
-    val frames = Iterator
-      .continually(readFrame(socket))
-      .takeWhile(!_.fin)
-      .toList
+    val frames = ArrayBuffer.empty[WsFrame]
+    var currFrame = readFrame(socket)
+    while (!currFrame.fin) {
+      frames += currFrame
+      currFrame = readFrame(socket)
+    }
+    frames += currFrame
 
     frames.head.opcode match {
       case TextData =>
-        // TODO - long strings dont seem to fully materialize yet, but it looks like full byte arrays are pulled
         val stringBuilder = new StringBuilder()
         frames.foreach { f =>
           stringBuilder.append(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(f.payload)))
