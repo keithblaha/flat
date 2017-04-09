@@ -24,7 +24,7 @@ object Ws {
 
   sealed trait WsOpcode { val code: Int }
   final case object Continuation extends WsOpcode { val code = 0 }
-  final case object TextData extends WsOpcode  { val code = 1 }
+  final case object TextData extends WsOpcode { val code = 1 }
 
   val supportedOpcodes = Map(
     Continuation.code -> Continuation,
@@ -170,13 +170,41 @@ class WsContext(socket: Socket) {
     }).map(_ => ())
   }
 
+  def getUnsignedIntBytes(n: Int, bytes: Int): Array[Byte] = {
+    (bytes to 1 by -1)
+      .map { e =>
+        (Math.pow(2, 8 * e) - 1).toInt & (n / Math.pow(2, 8 * (e - 1))).toInt
+      }
+      .map(_.toByte)
+      .toArray
+  }
+
+  // TODO - multiple frames/continuations
+  private def createFrame(msg: String): Array[Byte] = {
+    // fin = 1, rsv1/2/3 = 0, opcode = text = 1 => 128 + 1
+    val headByte = 129.toByte
+    val msgBytes = msg.getBytes(StandardCharsets.UTF_8)
+    val payloadLengthBytes = {
+      if (msgBytes.size <= 125) {
+        Array(msgBytes.size.toByte)
+      }
+      else if (msgBytes.size <= 65535) {
+        Array(126.toByte) ++ getUnsignedIntBytes(msgBytes.size, 2)
+      }
+      else {
+        Array(127.toByte) ++ getUnsignedIntBytes(msgBytes.size, 4)
+      }
+    }
+    Array(headByte) ++ payloadLengthBytes ++ msgBytes
+  }
+
   def send(msg: String): Unit = {
     // this should just queue something to send so no clobbering occurs
     // can probably have a single observable on all things needing to be sent
     // and run that somewhere always sending just like main server loop
     // should do the same thing for listening, run a pool that listens and grabs anything
     // which is ready to be read from
-    socket.getOutputStream.write(Array(0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f).map(_.toByte))
+    socket.getOutputStream.write(createFrame(msg))
     socket.getOutputStream.flush
   }
 }

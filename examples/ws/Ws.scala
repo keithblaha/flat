@@ -7,14 +7,11 @@ import flat._
 object Ws extends App with FlatApp {
   app.ws("/") { ws =>
     ws.onConnect {
-      // runs before client has probably connected
-      // if wanna do initial thing use first heartbeat
+      // not guaranteed to run before client has fully connected
     }
 
     ws.onMessage { (msg: String) =>
-      flat.logging.Logger.debug(s"got message of size ${msg.size}")
-
-      ws.send("")
+      ws.send("hi there")
     }
   }
 
